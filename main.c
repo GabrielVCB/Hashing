@@ -9,7 +9,7 @@ typedef struct carro {
     char marca[15];
     char modelo[15];
     char cor[15];
-    int status; // 1 - ativo ou 0 - removido
+    int status;
 } CARRO;
 
 typedef struct noTabela {
@@ -38,7 +38,7 @@ int main() {
     char nomeArq[] = "carros.dat";
     int op;
     FILE *cadastro;
-    NO *tabelaHashing[N] = {NULL}; // Inicializar a tabela hash com NULLs
+    NO *tabelaHashing[N] = {NULL};
     cadastro = prepararArquivo(nomeArq);
     if (cadastro == NULL)
         printf("Erro na abertura do arquivo. Programa encerrado \n");
@@ -47,7 +47,7 @@ int main() {
         do {
             exibirOpcoes();
             scanf("%d", &op);
-            limparBuffer(); // Limpar buffer após leitura do menu
+            limparBuffer();
             switch (op) {
             case 1:
                 cadastrar(cadastro, tabelaHashing);
@@ -94,7 +94,22 @@ void criarIndice(FILE *arq, NO *tabelaHashing[]) {
     fseek(arq, 0, SEEK_SET);
     while (fread(&c, sizeof(CARRO), 1, arq) == 1) {
         if (c.status == 1) {
-            inserirTabelaHash(tabelaHashing, c.placa, pos);
+            int h = hashing(c.placa);
+            NO *novo = (NO *)malloc(sizeof(NO));
+            strcpy(novo->placa, c.placa);
+            novo->posicao = pos;
+            novo->prox = NULL;
+            if (tabelaHashing[h] == NULL || strcmp(tabelaHashing[h]->placa, novo->placa) > 0) {
+                novo->prox = tabelaHashing[h];
+                tabelaHashing[h] = novo;
+            } else {
+                NO *atual = tabelaHashing[h];
+                while (atual->prox != NULL && strcmp(atual->prox->placa, novo->placa) < 0) {
+                    atual = atual->prox;
+                }
+                novo->prox = atual->prox;
+                atual->prox = novo;
+            }
         }
         pos++;
     }
@@ -108,6 +123,7 @@ void desalocarIndice(NO *tabelaHashing[]) {
             temp = temp->prox;
             free(aux);
         }
+        tabelaHashing[i] = NULL;
     }
 }
 
@@ -126,8 +142,9 @@ int buscar(NO *tabelaHashing[], char placa[]) {
     int pos = hashing(placa);
     NO *temp = tabelaHashing[pos];
     while (temp != NULL) {
-        if (strcmp(temp->placa, placa) == 0)
+        if (strcmp(temp->placa, placa) == 0) {
             return temp->posicao;
+        }
         temp = temp->prox;
     }
     return -1;
@@ -138,25 +155,35 @@ void inserirTabelaHash(NO *tabelaHashing[], char placa[], int pos) {
     NO *novo = (NO *)malloc(sizeof(NO));
     strcpy(novo->placa, placa);
     novo->posicao = pos;
-    novo->prox = tabelaHashing[h];
-    tabelaHashing[h] = novo;
+    novo->prox = NULL;
+    if (tabelaHashing[h] == NULL || strcmp(tabelaHashing[h]->placa, novo->placa) > 0) {
+        novo->prox = tabelaHashing[h];
+        tabelaHashing[h] = novo;
+    } else {
+        NO *atual = tabelaHashing[h];
+        while (atual->prox != NULL && strcmp(atual->prox->placa, novo->placa) < 0) {
+            atual = atual->prox;
+        }
+        novo->prox = atual->prox;
+        atual->prox = novo;
+    }
 }
 
 void removerTabelaHash(NO *tabelaHashing[], char placa[], int posTabela) {
     int pos = hashing(placa);
-    NO *prev = NULL;
-    NO *temp = tabelaHashing[pos];
-    while (temp != NULL) {
-        if (strcmp(temp->placa, placa) == 0) {
-            if (prev == NULL)
-                tabelaHashing[pos] = temp->prox;
-            else
-                prev->prox = temp->prox;
-            free(temp);
-            break;
+    NO *atual = tabelaHashing[pos];
+    NO *anterior = NULL;
+    while (atual != NULL && strcmp(atual->placa, placa) != 0) {
+        anterior = atual;
+        atual = atual->prox;
+    }
+    if (atual != NULL) {
+        if (anterior == NULL) {
+            tabelaHashing[pos] = atual->prox;
+        } else {
+            anterior->prox = atual->prox;
         }
-        prev = temp;
-        temp = temp->prox;
+        free(atual);
     }
 }
 
@@ -173,7 +200,8 @@ void cadastrar(FILE *arq, NO *tabelaHashing[]) {
     printf("Informe a placa do carro: ");
     scanf("%s", c.placa);
     limparBuffer();
-    if (buscar(tabelaHashing, c.placa) != -1) {
+    int pos = buscar(tabelaHashing, c.placa);
+    if (pos != -1) {
         printf("Carro já cadastrado.\n");
         return;
     }
@@ -188,8 +216,9 @@ void cadastrar(FILE *arq, NO *tabelaHashing[]) {
     limparBuffer();
     c.status = 1;
     fseek(arq, 0, SEEK_END);
+    long posArquivo = ftell(arq) / sizeof(CARRO);
     fwrite(&c, sizeof(CARRO), 1, arq);
-    inserirTabelaHash(tabelaHashing, c.placa, ftell(arq) / sizeof(CARRO));
+    inserirTabelaHash(tabelaHashing, c.placa, posArquivo);
     printf("Carro cadastrado com sucesso.\n");
 }
 
@@ -207,7 +236,6 @@ void consultar(FILE *arq, NO *tabelaHashing[]) {
         printf("Marca: %s\n", c.marca);
         printf("Modelo: %s\n", c.modelo);
         printf("Cor: %s\n", c.cor);
-        printf("Status: %s\n", c.status ? "Ativo" : "Removido");
     } else {
         printf("Carro não encontrado.\n");
     }
@@ -282,18 +310,19 @@ void exibirCadastro(FILE *arq) {
     CARRO c;
     printf("Carros cadastrados:\n");
     while (fread(&c, sizeof(CARRO), 1, arq) == 1) {
-        printf("Placa: %s\n", c.placa);
-        printf("Marca: %s\n", c.marca);
-        printf("Modelo: %s\n", c.modelo);
-        printf("Cor: %s\n", c.cor);
-        printf("Status: %s\n", c.status ? "Ativo" : "Removido");
-        printf("\n");
+        if (c.status == 1) {
+            printf("Placa: %s\n", c.placa);
+            printf("Marca: %s\n", c.marca);
+            printf("Modelo: %s\n", c.modelo);
+            printf("Cor: %s\n", c.cor);
+            printf("\n");
+        }
     }
 }
 
 void limparBuffer() {
     int c;
     while ((c = getchar()) != '\n' && c != EOF) {
-        // Consome todos os caracteres até encontrar uma nova linha ou fim de arquivo
     }
 }
+
